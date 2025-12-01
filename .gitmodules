@@ -1,0 +1,24 @@
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/ViktorOleshek/frontend.git
+[submodule "backend/Shared"]
+	path = backend/Shared
+	url = https://github.com/ViktorOleshek/Shared.git
+[submodule "backend/ApiGateway"]
+	path = backend/ApiGateway
+	url = https://github.com/ViktorOleshek/ApiGateway.git
+[submodule "backend/NotificationService"]
+	path = backend/NotificationService
+	url = https://github.com/ViktorOleshek/NotificationService.git
+[submodule "backend/GradeService"]
+	path = backend/GradeService
+	url = https://github.com/ViktorOleshek/GradeService.git
+[submodule "backend/CourseService"]
+	path = backend/CourseService
+	url = https://github.com/ViktorOleshek/CourseService.git
+[submodule "backend/UserService"]
+	path = backend/UserService
+	url = https://github.com/ViktorOleshek/UserService.git
+[submodule "backend/AuthService"]
+	path = backend/AuthService
+	url = https://github.com/ViktorOleshek/AuthService.git

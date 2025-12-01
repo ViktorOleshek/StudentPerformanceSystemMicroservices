@@ -1,0 +1,432 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Databases
+  auth-db:
+    image: postgres:16-alpine
+    container_name: auth-db
+    environment:
+      POSTGRES_USER: authuser
+      POSTGRES_PASSWORD: authpassword
+      POSTGRES_DB: authdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - gradehub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authuser -d authdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  user-db:
+    image: postgres:16-alpine
+    container_name: user-db
+    environment:
+      POSTGRES_USER: useruser
+      POSTGRES_PASSWORD: userpassword
+      POSTGRES_DB: userdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - user-db-data:/var/lib/postgresql/data
+    networks:
+      - gradehub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U useruser -d userdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  course-db:
+    image: postgres:16-alpine
+    container_name: course-db
+    environment:
+      POSTGRES_USER: courseuser
+      POSTGRES_PASSWORD: coursepassword
+      POSTGRES_DB: coursedb
+    ports:
+      - "5434:5432"
+    volumes:
+      - course-db-data:/var/lib/postgresql/data
+    networks:
+      - gradehub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U courseuser -d coursedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grade-db:
+    image: postgres:16-alpine
+    container_name: grade-db
+    environment:
+      POSTGRES_USER: gradeuser
+      POSTGRES_PASSWORD: gradepassword
+      POSTGRES_DB: gradedb
+    ports:
+      - "5435:5432"
+    volumes:
+      - grade-db-data:/var/lib/postgresql/data
+    networks:
+      - gradehub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gradeuser -d gradedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: gradehub-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - gradehub-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Jaeger for OpenTelemetry tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: gradehub-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector HTTP
+      - "14250:14250"  # Jaeger collector gRPC
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver
+    networks:
+      - gradehub-network
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 16686 && nc -z localhost 4317"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Backend Services
+  auth:
+    build:
+      context: ./backend
+      dockerfile: AuthService/Dockerfile
+    container_name: auth
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5001;https://+:7001
+      ASPNETCORE_HTTP_PORTS: "5001"
+      ASPNETCORE_HTTPS_PORTS: "7001"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: "/app/certs/auth.pfx"
+      ASPNETCORE_Kestrel__Certificates__Default__Password: "password"
+      ConnectionStrings__DefaultConnection: "Host=auth-db;Port=5432;Database=authdb;Username=authuser;Password=authpassword;"
+      Jwt__Issuer: AuthService
+      Jwt__Audience: MainProject
+      Jwt__Key: GradeHubSecretKey2025StudentPerformanceSystemJWT256BitKeyForAllServices
+      Kestrel__Endpoints__Http__Url: "http://+:5001"
+      Kestrel__Endpoints__Http__Protocols: "Http1AndHttp2"
+      Kestrel__Endpoints__Https__Url: "https://+:7001"
+      Kestrel__Endpoints__Https__Protocols: "Http1AndHttp2"
+      # OpenTelemetry configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_SERVICE_NAME: "AuthService"
+      OTEL_SERVICE_VERSION: "1.0.0"
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=AuthService,service.version=1.0.0"
+    ports:
+      - "5001:5001"
+      - "7001:7001"
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+
+  users:
+    build:
+      context: ./backend
+      dockerfile: UserService/Dockerfile
+    container_name: users
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5269;https://+:7006
+      ASPNETCORE_HTTP_PORTS: "5269"
+      ASPNETCORE_HTTPS_PORTS: "7006"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: "/app/certs/users.pfx"
+      ASPNETCORE_Kestrel__Certificates__Default__Password: "password"
+      ConnectionStrings__DefaultConnection: "Host=user-db;Port=5432;Database=userdb;Username=useruser;Password=userpassword;"
+      Jwt__Issuer: AuthService
+      Jwt__Audience: MainProject
+      Jwt__Key: GradeHubSecretKey2025StudentPerformanceSystemJWT256BitKeyForAllServices
+      GrpcServices__AuthServiceUrl: https://auth:7001
+      GrpcServices__CourseServiceUrl: https://courses:7253
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Kestrel__Endpoints__Http__Url: "http://+:5269"
+      Kestrel__Endpoints__Http__Protocols: "Http1AndHttp2"
+      Kestrel__Endpoints__Https__Url: "https://+:7006"
+      Kestrel__Endpoints__Https__Protocols: "Http1AndHttp2"
+      # OpenTelemetry configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_SERVICE_NAME: "UserService"
+      OTEL_SERVICE_VERSION: "1.0.0"
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=UserService,service.version=1.0.0"
+    ports:
+      - "5269:5269"
+      - "7006:7006"
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      user-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      auth:
+        condition: service_started
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "dotnet --info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  courses:
+    build:
+      context: ./backend
+      dockerfile: CourseService/Dockerfile
+    container_name: courses
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5145;https://+:7253
+      ASPNETCORE_HTTP_PORTS: "5145"
+      ASPNETCORE_HTTPS_PORTS: "7253"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: "/app/certs/courses.pfx"
+      ASPNETCORE_Kestrel__Certificates__Default__Password: "password"
+      ConnectionStrings__DefaultConnection: "Host=course-db;Port=5432;Database=coursedb;Username=courseuser;Password=coursepassword;"
+      Jwt__Issuer: AuthService
+      Jwt__Audience: MainProject
+      Jwt__Key: GradeHubSecretKey2025StudentPerformanceSystemJWT256BitKeyForAllServices
+      GrpcServices__AuthServiceUrl: https://auth:7001
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Kestrel__Endpoints__Http__Url: "http://+:5145"
+      Kestrel__Endpoints__Http__Protocols: "Http1AndHttp2"
+      Kestrel__Endpoints__Https__Url: "https://+:7253"
+      Kestrel__Endpoints__Https__Protocols: "Http1AndHttp2"
+      # OpenTelemetry configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_SERVICE_NAME: "CourseService"
+      OTEL_SERVICE_VERSION: "1.0.0"
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=CourseService,service.version=1.0.0"
+    ports:
+      - "5145:5145"
+      - "7253:7253"
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      course-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      auth:
+        condition: service_started
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "dotnet --info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  grades:
+    build:
+      context: ./backend
+      dockerfile: GradeService/Dockerfile
+    container_name: grades
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5002;https://+:7002
+      ASPNETCORE_HTTP_PORTS: "5002"
+      ASPNETCORE_HTTPS_PORTS: "7002"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: "/app/certs/grades.pfx"
+      ASPNETCORE_Kestrel__Certificates__Default__Password: "password"
+      ConnectionStrings__DefaultConnection: "Host=grade-db;Port=5432;Database=gradedb;Username=gradeuser;Password=gradepassword;"
+      Jwt__Issuer: AuthService
+      Jwt__Audience: MainProject
+      Jwt__Key: GradeHubSecretKey2025StudentPerformanceSystemJWT256BitKeyForAllServices
+      GrpcServices__AuthServiceUrl: https://auth:7001
+      GrpcServices__UserServiceUrl: https://users:7006
+      GrpcServices__CourseServiceUrl: https://courses:7253
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Kestrel__Endpoints__Http__Url: "http://+:5002"
+      Kestrel__Endpoints__Http__Protocols: "Http1AndHttp2"
+      Kestrel__Endpoints__Https__Url: "https://+:7002"
+      Kestrel__Endpoints__Https__Protocols: "Http1AndHttp2"
+      # OpenTelemetry configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_SERVICE_NAME: "GradeService"
+      OTEL_SERVICE_VERSION: "1.0.0"
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=GradeService,service.version=1.0.0"
+    ports:
+      - "5002:5002"
+      - "7002:7002"
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      grade-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      users:
+        condition: service_healthy
+      courses:
+        condition: service_healthy
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "dotnet --info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  notification:
+    build:
+      context: ./backend
+      dockerfile: NotificationService/Dockerfile
+    container_name: notification
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./backend
+      dockerfile: ApiGateway/Dockerfile
+    container_name: api-gateway
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5000
+      ASPNETCORE_HTTP_PORTS: "5000"
+      Jwt__Issuer: AuthService
+      Jwt__Audience: MainProject
+      Jwt__Key: GradeHubSecretKey2025StudentPerformanceSystemJWT256BitKeyForAllServices
+      Services__AuthService: http://auth:5001
+      Services__UserService: http://users:5269
+      Services__CourseService: http://courses:5145
+      Services__GradeService: http://grades:5002
+      ReverseProxy__Clusters__auth-cluster__Destinations__destination1__Address: http://auth:5001
+      ReverseProxy__Clusters__users-cluster__Destinations__destination1__Address: http://users:5269
+      ReverseProxy__Clusters__courses-cluster__Destinations__destination1__Address: http://courses:5145
+      ReverseProxy__Clusters__grades-cluster__Destinations__destination1__Address: http://grades:5002
+      Kestrel__Endpoints__Http__Url: "http://+:5000"
+      Kestrel__Endpoints__Http__Protocols: "Http1AndHttp2"
+      # OpenTelemetry configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_SERVICE_NAME: "ApiGateway"
+      OTEL_SERVICE_VERSION: "1.0.0"
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=ApiGateway,service.version=1.0.0"
+    ports:
+      - "5000:5000"
+    depends_on:
+      jaeger:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      users:
+        condition: service_healthy
+      courses:
+        condition: service_healthy
+      grades:
+        condition: service_healthy
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "dotnet --info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    environment:
+      VITE_API_URL: http://api-gateway:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - gradehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  auth-db-data:
+  user-db-data:
+  course-db-data:
+  grade-db-data:
+  rabbitmq-data:
+
+networks:
+  gradehub-network:
+    driver: bridge
