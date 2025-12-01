@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Mathematics 101",
+    "description": "Basic concepts of algebra and geometry",
+    "teacherUserId": 0,
+    "studentIds": [1],
+    "startDate": "2025-10-27",
+    "endDate": "2025-11-07"
+  },
+  {
+    "name": "Physics Fundamentals",
+    "description": "Introduction to mechanics and thermodynamics",
+    "teacherUserId": 0,
+    "studentIds": [1],
+    "startDate": "2025-10-28",
+    "endDate": "2025-11-08"
+  },
+  {
+    "name": "English Literature",
+    "description": "Study of classic English novels and poetry",
+    "teacherUserId": 0,
+    "studentIds": [1],
+    "startDate": "2025-10-29",
+    "endDate": "2025-11-09"
+  },
+  {
+    "name": "Computer Science Basics",
+    "description": "Introduction to programming and algorithms",
+    "teacherUserId": 0,
+    "studentIds": [1],
+    "startDate": "2025-10-30",
+    "endDate": "2025-11-10"
+  },
+  {
+    "name": "History of Art",
+    "description": "Overview of art movements from Renaissance to Modernism",
+    "teacherUserId": 0,
+    "studentIds": [1],
+    "startDate": "2025-10-31",
+    "endDate": "2025-11-11"
+  }
+]

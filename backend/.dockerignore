@@ -1,0 +1,13 @@
+.git
+.gitignore
+.vs
+.vscode
+bin
+obj
+*.user
+*.suo
+*.sln.docstates
+.idea
+.DS_Store
+node_modules
+npm-debug.log
